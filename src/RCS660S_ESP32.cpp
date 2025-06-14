@@ -276,7 +276,7 @@ int RCS660S::initDevice(void)
     uint16_t buf_len;
 
     // Reset
-    Serial1.write(0x01);
+    _serial->write(0x01);
     delay(20);
 
     // PC_to_RDR_Abort
