@@ -26,6 +26,17 @@ int RCS660S::cardCommand(
     uint8_t buf[RCS660S_BUFFER_SIZE];
     uint16_t buf_len;
 
+    if (command == nullptr || response == nullptr || response_len == nullptr)
+    {
+        Serial.println("Error: cardCommand null pointer");
+        return 0;
+    }
+    if (command_len == 0)
+    {
+        Serial.println("Error: cardCommand empty command");
+        return 0;
+    }
+
     // Build command APDU
     buf[0] = RCS660S_CLA_DEFAULT;         // CLA
     buf[1] = RCS660S_INS_CARD_COMMAND;    // INS
@@ -49,7 +60,11 @@ int RCS660S::cardCommand(
 
     // Send command and receive response
     write_apdu(buf, 15 + command_len + 1);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Failed to receive CCID response");
+        return 0;
+    }
 
     // Validate CCID Header
     if (buf[0] != 0x83 || buf[7] != 0x02)
@@ -65,7 +80,17 @@ int RCS660S::cardCommand(
         return 0;
     }
 
+    if (buf_len < 25 || buf[23] == 0)
+    {
+        Serial.println("Error: CCID response too short");
+        return 0;
+    }
     *response_len = (uint8_t)(buf[23] - 1);
+    if ((uint16_t)(25 + *response_len) > buf_len)
+    {
+        Serial.println("Error: CCID response length mismatch");
+        return 0;
+    }
     memcpy(response, buf + 25, *response_len);
 
     return 1;
@@ -81,6 +106,17 @@ int RCS660S::send_ccid_command(const uint8_t *command, uint16_t command_len)
 {
     uint8_t dcs;
     uint8_t buf[RCS660S_SMALL_BUFFER_SIZE];
+
+    if (command == nullptr || command_len == 0)
+    {
+        Serial.println("Error: send_ccid_command invalid input");
+        return 0;
+    }
+    if (command_len > (RCS660S_SMALL_BUFFER_SIZE - 8))
+    {
+        Serial.println("Error: send_ccid_command length exceeds buffer");
+        return 0;
+    }
 
     // Calculate DCS (Data Check Sum)
     dcs = calcDCS(command, command_len);
@@ -114,6 +150,13 @@ int RCS660S::receive_ccid_response(uint8_t *response, uint16_t *response_len)
     uint16_t buf_len;
     uint16_t pd_len;
     uint16_t need_len;
+    uint8_t dcs;
+
+    if (response == nullptr || response_len == nullptr)
+    {
+        Serial.println("Error: receive_ccid_response null pointer");
+        return 0;
+    }
 
     // Read response command header (6 bytes)
     buf_len = 0;
@@ -148,9 +191,25 @@ int RCS660S::receive_ccid_response(uint8_t *response, uint16_t *response_len)
 
     // Read remaining data (payload + checksum)
     need_len = pd_len + 2;
-    readSerial(buf + 6, need_len);
+    rc = readSerial(buf + 6, need_len);
+    if (!rc)
+    {
+        Serial.println("Error: UART read timeout (payload)");
+        return 0;
+    }
 
-    // TODO: Add additional response validation checks
+    // Validate data checksum and postamble
+    dcs = calcDCS(buf + 6, pd_len);
+    if (buf[6 + pd_len] != dcs)
+    {
+        Serial.println("Error: Invalid response data checksum");
+        return 0;
+    }
+    if (buf[6 + pd_len + 1] != 0x00)
+    {
+        Serial.println("Error: Invalid response postamble");
+        return 0;
+    }
 
     // Copy payload data (excluding header)
     memcpy(response, buf + 6, pd_len);
@@ -213,9 +272,21 @@ int RCS660S::abort_command()
     abort[6] = ++bseq;
 
     // Send abort command and receive response
-    send_ccid_command(abort, sizeof(abort));
-    receive_ack();
-    receive_ccid_response(response_buf, &response_len);
+    if (!send_ccid_command(abort, sizeof(abort)))
+    {
+        Serial.println("Error: Failed to send abort command");
+        return 0;
+    }
+    if (!receive_ack())
+    {
+        Serial.println("Error: Abort command ACK failed");
+        return 0;
+    }
+    if (!receive_ccid_response(response_buf, &response_len))
+    {
+        Serial.println("Error: Abort command response failed");
+        return 0;
+    }
     return 0;
 }
 
@@ -229,6 +300,17 @@ int RCS660S::write_apdu(const uint8_t *data, uint32_t data_len)
 {
     uint32_t buf_len;
     uint8_t buf[RCS660S_BUFFER_SIZE];
+
+    if (data == nullptr || data_len == 0)
+    {
+        Serial.println("Error: write_apdu invalid input");
+        return 0;
+    }
+    if ((10 + data_len) > RCS660S_BUFFER_SIZE)
+    {
+        Serial.println("Error: write_apdu length exceeds buffer");
+        return 0;
+    }
 
     // Build CCID message header
     buf[0] = RCS660S_MSG_TYPE_PC_TO_RDR_ESCAPE;  // Message type
@@ -254,8 +336,16 @@ int RCS660S::write_apdu(const uint8_t *data, uint32_t data_len)
     }
 
     // Send command and wait for acknowledgment
-    send_ccid_command(buf, buf_len);
-    receive_ack();
+    if (!send_ccid_command(buf, buf_len))
+    {
+        Serial.println("Error: Failed to send APDU");
+        return 0;
+    }
+    if (!receive_ack())
+    {
+        Serial.println("Error: APDU ACK failed");
+        return 0;
+    }
 
     return 0;
 }
@@ -265,7 +355,16 @@ int RCS660S::read_rapdu(uint8_t *data, uint32_t *data_len)
     uint8_t buf[1024];
     uint16_t buf_len;
 
-    receive_ccid_response(buf, &buf_len);
+    if (data == nullptr || data_len == nullptr)
+    {
+        Serial.println("Error: read_rapdu null pointer");
+        return 0;
+    }
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Failed to receive RAPDU");
+        return 0;
+    }
 
     return 0;
 }
@@ -280,35 +379,67 @@ int RCS660S::initDevice(void)
     delay(20);
 
     // PC_to_RDR_Abort
-    abort_command();
+    if (!abort_command())
+    {
+        Serial.println("Error: Abort command failed");
+        return 0;
+    }
 
     // APDU : End Transparent Session
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x82\x00", 7);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: End Transparent Session failed");
+        return 0;
+    }
 
     // APDU : Start Transparent Session
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x81\x00", 7);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Start Transparent Session failed");
+        return 0;
+    }
 
     // APDU : Switch Protocol
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x02\x04\x8F\x02\x03\x00", 9);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Switch Protocol failed");
+        return 0;
+    }
 
     // APDU : Transparent Exchange Transmission and Reception Flag
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x04\x90\x02\x00\x1C", 9);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Transmission/Reception Flag failed");
+        return 0;
+    }
 
     // APDU : Transparent Exchange Transmission Bit framing
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x03\x91\x01\x00", 8);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Bit framing failed");
+        return 0;
+    }
 
     // APDU : Manage Session Set Parameters
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x06\xFF\x6E\x03\x05\x01\x89", 11);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Set Parameters failed");
+        return 0;
+    }
 
     // APDU Manage Session Turn On RF Field
     write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x84\x00\x00", 8);
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Turn On RF Field failed");
+        return 0;
+    }
 
     return 1;
 }
@@ -340,7 +471,11 @@ int RCS660S::polling(uint16_t systemCode)
     command[16] = (uint8_t)((systemCode >> 8) & 0xff);
     command[17] = (uint8_t)((systemCode >> 0) & 0xff);
     write_apdu(command, sizeof(command));
-    receive_ccid_response(buf, &buf_len);
+    if (!receive_ccid_response(buf, &buf_len))
+    {
+        Serial.println("Error: Polling response failed");
+        return 0;
+    }
 
     // no card
     if (buf_len != 44)
