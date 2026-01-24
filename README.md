@@ -76,7 +76,12 @@ void loop() {
 }
 ```
 
-より詳細な使用例は[exampleフォルダ](example/)を参照してください。
+より詳細な使用例は[examplesフォルダ](examples/)を参照してください。
+
+### Suica残高取得（Core2例）
+
+`examples/Core2/Core2.ino` にはSuica残高取得のサンプルを含めています。  
+Suica以外のFeliCaカードを使用する場合は、サービスコードをカード仕様に合わせて変更してください。
 
 ## API リファレンス
 
