@@ -21,7 +21,7 @@ int RCS660S::cardCommand(
     const uint8_t *command,
     uint8_t command_len,
     uint8_t *response,
-    uint8_t *response_len)
+    uint16_t *response_len)
 {
     uint8_t buf[RCS660S_BUFFER_SIZE];
     uint16_t buf_len;
@@ -59,7 +59,11 @@ int RCS660S::cardCommand(
     buf[15 + command_len] = 0x00;
 
     // Send command and receive response
-    write_apdu(buf, 15 + command_len + 1);
+    if (!write_apdu(buf, 15 + command_len + 1))
+    {
+        Serial.println("Error: Failed to send card command APDU");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Failed to receive CCID response");
@@ -85,7 +89,7 @@ int RCS660S::cardCommand(
         Serial.println("Error: CCID response too short");
         return 0;
     }
-    *response_len = (uint8_t)(buf[23] - 1);
+    *response_len = (uint16_t)(buf[23] - 1);
     if ((uint16_t)(25 + *response_len) > buf_len)
     {
         Serial.println("Error: CCID response length mismatch");
@@ -254,7 +258,7 @@ int RCS660S::receive_ack()
 
 /**
  * Send abort command to the device
- * @return 0 on success (Note: returns 0 to match RCS620S behavior)
+ * @return 1 on success
  */
 int RCS660S::abort_command()
 {
@@ -287,14 +291,14 @@ int RCS660S::abort_command()
         Serial.println("Error: Abort command response failed");
         return 0;
     }
-    return 0;
+    return 1;
 }
 
 /**
  * Write APDU (Application Protocol Data Unit) to the device
  * @param data APDU data to write
  * @param data_len Length of APDU data
- * @return 0 on success (Note: returns 0 to match RCS620S behavior)
+ * @return 1 on success
  */
 int RCS660S::write_apdu(const uint8_t *data, uint32_t data_len)
 {
@@ -347,31 +351,12 @@ int RCS660S::write_apdu(const uint8_t *data, uint32_t data_len)
         return 0;
     }
 
-    return 0;
-}
-
-int RCS660S::read_rapdu(uint8_t *data, uint32_t *data_len)
-{
-    uint8_t buf[1024];
-    uint16_t buf_len;
-
-    if (data == nullptr || data_len == nullptr)
-    {
-        Serial.println("Error: read_rapdu null pointer");
-        return 0;
-    }
-    if (!receive_ccid_response(buf, &buf_len))
-    {
-        Serial.println("Error: Failed to receive RAPDU");
-        return 0;
-    }
-
-    return 0;
+    return 1;
 }
 
 int RCS660S::initDevice(void)
 {
-    uint8_t buf[1024];
+    uint8_t buf[RCS660S_BUFFER_SIZE];
     uint16_t buf_len;
 
     // Reset
@@ -386,7 +371,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : End Transparent Session
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x82\x00", 7);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x82\x00", 7))
+    {
+        Serial.println("Error: End Transparent Session command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: End Transparent Session failed");
@@ -394,7 +383,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : Start Transparent Session
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x81\x00", 7);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x81\x00", 7))
+    {
+        Serial.println("Error: Start Transparent Session command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Start Transparent Session failed");
@@ -402,7 +395,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : Switch Protocol
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x02\x04\x8F\x02\x03\x00", 9);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x02\x04\x8F\x02\x03\x00", 9))
+    {
+        Serial.println("Error: Switch Protocol command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Switch Protocol failed");
@@ -410,7 +407,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : Transparent Exchange Transmission and Reception Flag
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x04\x90\x02\x00\x1C", 9);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x04\x90\x02\x00\x1C", 9))
+    {
+        Serial.println("Error: Transmission/Reception Flag command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Transmission/Reception Flag failed");
@@ -418,7 +419,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : Transparent Exchange Transmission Bit framing
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x03\x91\x01\x00", 8);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x01\x03\x91\x01\x00", 8))
+    {
+        Serial.println("Error: Bit framing command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Bit framing failed");
@@ -426,7 +431,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU : Manage Session Set Parameters
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x06\xFF\x6E\x03\x05\x01\x89", 11);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x06\xFF\x6E\x03\x05\x01\x89", 11))
+    {
+        Serial.println("Error: Set Parameters command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Set Parameters failed");
@@ -434,7 +443,11 @@ int RCS660S::initDevice(void)
     }
 
     // APDU Manage Session Turn On RF Field
-    write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x84\x00\x00", 8);
+    if (!write_apdu((const uint8_t *)"\xFF\xC2\x00\x00\x02\x84\x00\x00", 8))
+    {
+        Serial.println("Error: Turn On RF Field command failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Turn On RF Field failed");
@@ -446,7 +459,6 @@ int RCS660S::initDevice(void)
 
 int RCS660S::polling(uint16_t systemCode)
 {
-    int ret;
     uint8_t command[] =
         {
             0xFF, // CLA
@@ -465,12 +477,16 @@ int RCS660S::polling(uint16_t systemCode)
             0xFF, 0xFF, // SystemCode
             0x00, 0x00};
 
-    uint8_t buf[1024];
+    uint8_t buf[RCS660S_BUFFER_SIZE];
     uint16_t buf_len;
 
     command[16] = (uint8_t)((systemCode >> 8) & 0xff);
     command[17] = (uint8_t)((systemCode >> 0) & 0xff);
-    write_apdu(command, sizeof(command));
+    if (!write_apdu(command, sizeof(command)))
+    {
+        Serial.println("Error: Polling command send failed");
+        return 0;
+    }
     if (!receive_ccid_response(buf, &buf_len))
     {
         Serial.println("Error: Polling response failed");

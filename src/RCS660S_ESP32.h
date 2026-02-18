@@ -53,7 +53,7 @@ public:
         const uint8_t *command,
         uint8_t commandLen,
         uint8_t response[RCS660S_BUFFER_SIZE],
-        uint8_t *responseLen);
+        uint16_t *responseLen);
 
     // Device information
     unsigned long timeout;  // Communication timeout in milliseconds
@@ -89,7 +89,6 @@ private:
     int receive_ack(void);
     int abort_command(void);
     int write_apdu(const uint8_t *data, uint32_t data_len);
-    int read_rapdu(uint8_t *data, uint32_t *data_len);
 };
 
 #endif

@@ -21,7 +21,7 @@ int getSuicaBalance(int *balance) {
   int ret;
   uint8_t command[17];
   uint8_t response[256];
-  uint8_t responseLen;
+  uint16_t responseLen;
 
   // Build Read Without Encryption command
   command[0] = 0x06;                       // Command code
@@ -36,7 +36,7 @@ int getSuicaBalance(int *balance) {
   ret = nfc.cardCommand(command, 15, response, &responseLen);
 
   // Validate response length
-  if (!ret || (responseLen < 14)) {
+  if (!ret || (responseLen < 24)) {
     return 1;
   }
 
@@ -53,6 +53,7 @@ void setup() {
   Serial.begin(115200);
   Serial2.begin(115200, SERIAL_8N1, uartRx, uartTx);
   // Initialize reader and start transparent session
+  nfc.logLevel = RCS660S::LOG_DEBUG; // Enable debug logging
   nfc.initDevice();
 }
 
